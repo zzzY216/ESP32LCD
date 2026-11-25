@@ -1,0 +1,25 @@
+# ===================================================================
+#  分区表 -- 16MB Flash 布局
+#
+#  为什么自定义分区表：
+#    ESP-IDF 默认的单应用分区表（Single factory app）只给应用区 1MB，
+#    且整体按 2MB Flash 设计。你的模块是 16MB，用默认表会浪费大量空间。
+#
+#  本布局：
+#    nvs        24KB  —— BLE 配对信息、用户配置
+#    phy_init    4KB  —— RF 校准数据
+#    factory     2MB  —— 应用程序（当前固件约 470KB，余量充足）
+#    ota_0       2MB  —— 预留 OTA 分区（以后做空中升级用）
+#    ota_1       2MB  —— 预留 OTA 分区
+#    storage    余下  —— 可存图片缓存、字体等大文件
+#
+#  命名说明：Name 最长 16 字符，Type/SubType 必须小写。
+# ===================================================================
+
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+phy_init,   data, phy,     0xf000,   0x1000,
+factory,    app,  factory, 0x10000,  0x200000,
+ota_0,      app,  ota_0,   0x210000, 0x200000,
+ota_1,      app,  ota_1,   0x410000, 0x200000,
+storage,    data, spiffs,  0x610000, 0x9E0000,

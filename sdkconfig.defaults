@@ -1,0 +1,136 @@
+# ===================================================================
+#  默认配置（不包含 sdkconfig 时生效）
+#  改配置请用 idf.py menuconfig，不要直接改这个文件
+#
+#  【重要】本项目的目标芯片是 ESP32-S3（不是 ESP32）。
+#  从启动日志可以确认：
+#    ESP-ROM:esp32s3-20210327
+#    boot.esp32s3: Boot SPI Speed : 80MHz
+#    cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+# ===================================================================
+
+# ---------- 蓝牙：只用 BLE，启用 NimBLE ----------
+# 注意：BTDM_CTRL_MODE_* 是 ESP32（双核老款）专有的，S3 上不存在，
+# 写了也不生效，所以下面注释掉，避免误导。
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=y
+# CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y       # ESP32 专用，S3 无此项
+# CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=n    # ESP32 专用
+# CONFIG_BTDM_CTRL_MODE_BTDM=n           # ESP32 专用
+
+# ---------- ★ 解决 brownout 复位 ----------
+#
+# 【问题】日志里反复出现：
+#     rst:0xf (BROWNOUT_RST)
+#     E BOD: Brownout detector was triggered
+#     Saved PC: rtc_brownout_isr_handler
+#
+# 原因：BLE 射频启动瞬间（phy_init）电流突增到 300~500mA，
+#      电源供应能力不足时电压瞬间跌破阈值，芯片保护性复位。
+#
+# ---------- 重要：档位方向 ----------
+#
+# ESP32-S3 的 brownout 档位编号与电压是**反的**，
+# 数字越小，触发电压越**高**，越容易误触发：
+#
+#     档位 7 = 2.44V   <- 最低阈值，最宽容（官方默认）
+#     档位 6 = 2.56V
+#     档位 5 = 2.67V
+#     档位 4 = 2.84V
+#     档位 3 = 2.98V   <- 之前误设成这个，反而更容易触发！
+#     档位 2 = 3.19V
+#     档位 1 = 3.30V
+#
+# 【历史错误记录】
+# 曾把档位从默认 7 改成 3，以为"降低阈值"，
+# 实际是把触发电压从 2.44V **提高**到 2.98V，
+# 让 brownout 更容易发生，问题反而恶化了。
+#
+# 现在改回官方默认的第 7 档（2.44V，最宽容）。
+# 如果第 7 档仍然复位，说明供电确实严重不足，必须改硬件。
+
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_3=n
+CONFIG_ESP_BROWNOUT_DET_LVL=7
+
+# 注：ESP32-S3 的 esp_bt_controller_config_t 里**没有**发射功率字段，
+# 也没有 BT_LE_DFT_TX_POWER_LEVEL 这个 Kconfig（那是 C2/C5/C6/H2 才有的）。
+# 所以降功率只能用运行时 API esp_ble_tx_power_set()，
+# 但它在 nimble_port_init() 之后执行，救不了启动瞬间的冲击。
+
+# ---------- NimBLE：作为 Peripheral（从机）工作 ----------
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+
+# ---------- 设备名 ----------
+CONFIG_BT_NIMBLE_SVC_GAP_DEVICE_NAME="OLCD-ESP32"
+
+# ---------- 增大 ATT 缓冲区 ----------
+# 手机一次可下发更多数据，减少往返次数。
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=512
+
+# ---------- 主机任务栈 ----------
+# BLE 协议栈需要足够栈空间，否则容易出现栈溢出重启
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=5120
+
+# ---------- 串口 ----------
+# ESP32-S3 的 UART0（控制台）固定为 GPIO43(TX) / GPIO44(RX)，
+# 与 ESP32 的 GPIO1/GPIO3 不同，但与我们的 UART2（GPIO17/16）不冲突。
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# ---------- Flash 容量 ----------
+# 日志确认 Flash 为 16MB（boot.esp32s3: SPI Flash Size : 16MB）
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+# 使用自定义分区表（见 partitions.csv），给应用区留更大空间
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# ---------- 日志 ----------
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# ---------- 降低功耗（缓解 BROWNOUT_RST）----------
+#
+# 【问题】接上 STM32 + ST7789 屏幕后，ESP32 出现 BROWNOUT_RST 循环重启：
+#     rst:0xf (BROWNOUT_RST),boot:0x28
+#     ...
+#     I (99) esp_image: segment 0: paddr=00010020 ...   <- 卡在这里就重启
+#
+# 注意：这次比之前严重——复位发生在 **Flash 加载阶段**，
+# 连 app_main 都没跑到，说明电源在静态负载下就已经不够。
+#
+# 负载来源：
+#   ESP32-S3 空闲        约  40 mA
+#   ESP32-S3 射频峰值    约 300~500 mA
+#   STM32F103 运行       约  30 mA
+#   ST7789 屏幕 + 背光   约  20~60 mA
+#   ─────────────────────────────
+#   合计峰值可能 > 600 mA
+#
+# 开发板板载 AMS1117 通常只有 500~800mA，加上 USB 线压降，
+# 很容易跌破 brownout 阈值。
+#
+# 【软件缓解措施（下面这些）】
+#   1. CPU 240MHz → 160MHz：降低约 20~30% 功耗，对功能无影响
+#   2. Flash 80MHz → 40MHz：降低 Flash 读取时的瞬时电流
+#   3. brownout 阈值已降到最低档 3（约 2.5V）
+#   4. BLE 发射功率已在代码里降到 0dBm
+#
+# 【但这些只是缓解，真正的解决办法是硬件】
+#   - 换更粗更短的 USB 线
+#   - 插电脑后置 USB 口，不经 Hub
+#   - 或用 5V/2A 独立电源
+#   - 屏幕背光可串限流电阻降低电流
+
+# CPU 160MHz（默认 240MHz）。图像转发用不到那么高主频。
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=160
+
+# Flash 40MHz（默认 80MHz）
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+CONFIG_ESPTOOLPY_FLASHFREQ="40m"
+

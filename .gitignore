@@ -1,0 +1,61 @@
+# ===================================================================
+#  ESP-IDF 项目 .gitignore
+# ===================================================================
+
+# ---------- 构建产物（最重要的）----------
+# build/ 目录包含所有编译中间文件和固件，本机 125MB，
+# 绝对不能提交。每次 idf.py build 会重新生成。
+build/
+
+# ---------- 配置文件 ----------
+# sdkconfig 是根据 sdkconfig.defaults 生成的，
+# 属于"本机产物"，因不同机器的 menuconfig 操作而异。
+# 团队约定：只提交 sdkconfig.defaults，不提交 sdkconfig。
+sdkconfig
+
+# 每次 menuconfig 保存时 IDF 自动生成的旧版本备份
+sdkconfig.old
+
+# ---------- IDE / 编辑器 ----------
+# VS Code 工作区设置（每人不同）
+.vscode/
+
+# clangd 语言服务器配置（与本机工具链路径相关）
+.clangd
+compile_commands.json
+.cache/
+
+# CLion
+.idea/
+
+# Eclipse
+.project
+.cproject
+.settings/
+
+# ---------- 编译中间件 ----------
+*.o
+*.obj
+*.d
+*.a
+*.elf
+*.map
+
+# ---------- 其他 ----------
+# 依赖锁文件（如使用）
+dependencies.lock
+
+# 操作系统生成的文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.log
+*.tmp
+*.swp
+*~
+
+# managed_components 是 IDF 组件管理器下载的，
+# 可由 idf.py reconfigure 重新获取
+managed_components/
